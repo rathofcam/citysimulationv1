@@ -317,6 +317,255 @@ window.startGeneration = async () => {
 
     initWFC();
     solveWFC();
+};function initThree() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x101010);
+
+    camera = new THREE.PerspectiveCamera(
+        60,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+    );
+
+    camera.position.set(25, 35, 25);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    addLights();
+
+    window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+}
+
+function addLights() {
+    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+
+    const sun = new THREE.DirectionalLight(0xffffff, 1);
+    sun.position.set(30, 60, 20);
+    scene.add(sun);
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+async function loadModels() {
+    const loader = new GLTFLoader();
+
+    function load(path) {
+        return new Promise((resolve, reject) => {
+            loader.load(
+                path,
+                gltf => resolve(gltf.scene),
+                undefined,
+                err => reject(err)
+            );
+        });
+    }
+
+    models.road = await load("./road.gltf");
+    models.house = await load("./house.gltf");
+    models.office = await load("./skyscraper.gltf");
+    models.empty = await load("./grass.gltf");
+}
+
+function clearCity() {
+    scene.clear();
+    addLights();
+}
+
+/* =========================
+   VISUAL ROAD CONNECTORS
+========================= */
+function addRoadConnector(x, z, dir) {
+    const roadMat = new THREE.MeshStandardMaterial({
+        color: 0x222222,
+        roughness: 0.75
+    });
+
+    const lineMat = new THREE.MeshStandardMaterial({
+        color: 0xffffaa,
+        roughness: 0.5
+    });
+
+    let connector;
+
+    if (dir === "up" || dir === "down") {
+        connector = new THREE.Mesh(
+            new THREE.BoxGeometry(TILE_SIZE * 0.28, 0.035, TILE_SIZE),
+            roadMat
+        );
+    } else {
+        connector = new THREE.Mesh(
+            new THREE.BoxGeometry(TILE_SIZE, 0.035, TILE_SIZE * 0.28),
+            roadMat
+        );
+    }
+
+    connector.position.set(x, 0.04, z);
+    scene.add(connector);
+
+    let stripe;
+
+    if (dir === "up" || dir === "down") {
+        stripe = new THREE.Mesh(
+            new THREE.BoxGeometry(TILE_SIZE * 0.04, 0.04, TILE_SIZE),
+            lineMat
+        );
+    } else {
+        stripe = new THREE.Mesh(
+            new THREE.BoxGeometry(TILE_SIZE, 0.04, TILE_SIZE * 0.04),
+            lineMat
+        );
+    }
+
+    stripe.position.set(x, 0.08, z);
+    scene.add(stripe);
+}
+
+function addDriveway(x, z, dir) {
+    const mat = new THREE.MeshStandardMaterial({
+        color: 0x333333,
+        roughness: 0.8
+    });
+
+    let driveway;
+
+    if (dir === "up" || dir === "down") {
+        driveway = new THREE.Mesh(
+            new THREE.BoxGeometry(TILE_SIZE * 0.22, 0.035, TILE_SIZE * 0.5),
+            mat
+        );
+    } else {
+        driveway = new THREE.Mesh(
+            new THREE.BoxGeometry(TILE_SIZE * 0.5, 0.035, TILE_SIZE * 0.22),
+            mat
+        );
+    }
+
+    driveway.position.set(x, 0.06, z);
+    scene.add(driveway);
+}
+
+function rotateRoad(model, index) {
+    const c = getRoadConnections(index);
+
+    if (c.up && c.down && !c.left && !c.right) {
+        model.rotation.y = 0;
+    }
+    else if (c.left && c.right && !c.up && !c.down) {
+        model.rotation.y = Math.PI / 2;
+    }
+    else if (c.up && c.right && !c.down && !c.left) {
+        model.rotation.y = 0;
+    }
+    else if (c.right && c.down && !c.left && !c.up) {
+        model.rotation.y = Math.PI / 2;
+    }
+    else if (c.down && c.left && !c.up && !c.right) {
+        model.rotation.y = Math.PI;
+    }
+    else if (c.left && c.up && !c.right && !c.down) {
+        model.rotation.y = -Math.PI / 2;
+    }
+    else {
+        model.rotation.y = 0;
+    }
+}
+
+function renderCity() {
+    clearCity();
+
+    grid.forEach(cell => {
+        const type = cell.options[0];
+
+        if (!models[type]) return;
+
+        const model = models[type].clone(true);
+
+        const x = (cell.index % GRID_SIZE) * TILE_SIZE;
+        const z = Math.floor(cell.index / GRID_SIZE) * TILE_SIZE;
+
+        model.position.set(x, 0, z);
+
+        if (type === "road") {
+            rotateRoad(model, cell.index);
+        }
+
+        scene.add(model);
+
+        if (type === "road") {
+            const c = getRoadConnections(cell.index);
+
+            if (c.up) {
+                addRoadConnector(x, z - TILE_SIZE / 2, "up");
+            }
+
+            if (c.down) {
+                addRoadConnector(x, z + TILE_SIZE / 2, "down");
+            }
+
+            if (c.left) {
+                addRoadConnector(x - TILE_SIZE / 2, z, "left");
+            }
+
+            if (c.right) {
+                addRoadConnector(x + TILE_SIZE / 2, z, "right");
+            }
+        }
+
+        if (type === "house" || type === "office") {
+            const dir = getNearbyRoadDirection(cell.index);
+
+            if (dir === "up") {
+                addDriveway(x, z - TILE_SIZE / 2, "up");
+            }
+
+            if (dir === "down") {
+                addDriveway(x, z + TILE_SIZE / 2, "down");
+            }
+
+            if (dir === "left") {
+                addDriveway(x - TILE_SIZE / 2, z, "left");
+            }
+
+            if (dir === "right") {
+                addDriveway(x + TILE_SIZE / 2, z, "right");
+            }
+        }
+    });
+
+    document.getElementById("status").innerText = "Visually connected city generated!";
+}
+
+window.startGeneration = async () => {
+    document.getElementById("status").innerText = "Loading models...";
+
+    if (!scene) {
+        initThree();
+    }
+
+    if (Object.keys(models).length === 0) {
+        await loadModels();
+    }
+
+    document.getElementById("status").innerText = "Generating visual connections...";
+
+    initWFC();
+    solveWFC();
 };
 
 </script>
