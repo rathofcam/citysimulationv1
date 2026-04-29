@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D WFC City Architect</title>
+
+<style>
+body {
+    margin: 0;
+    background-color: #101010;
+    color: white;
+    font-family: sans-serif;
+    overflow: hidden;
+}
+#ui {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 10;
+    pointer-events: none;
+}
+button {
+    pointer-events: auto;
+    padding: 12px 24px;
+    font-size: 16px;
+    cursor: pointer;
+    background: #52b788;
+    border: none;
+    color: white;
+    font-weight: bold;
+    border-radius: 4px;
+}
+#status {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #aaa;
+}
+</style>
+</head>
+
+<body>
+
+<div id="ui">
+    <h1>City WFC 3D</h1>
+    <button onclick="startGeneration()">YAS! GENERATE CITY</button>
+    <div id="status">Ready to collapse...</div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* =========================
+   SETTINGS
+========================= */
+const GRID_SIZE = 10;
+const TILE_SIZE = 4;
+
+const TYPES = ['road', 'house', 'office', 'empty'];
+
+const RULES = {
+    road: ['road', 'house', 'office', 'empty'],
+    house: ['road'],
+    office: ['road'],
+    empty: ['road', 'empty']
+};
+
+let grid = [];
+let scene, camera, renderer, controls;
+let models = {};
+
+/* =========================
+   INIT THREE
+========================= */
+function initThree() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x101010);
+
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(20, 30, 20);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    controls = new OrbitControls(camera, renderer.domElement);
+
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(20, 50, 10);
+    scene.add(light);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+/* =========================
+   LOAD MODELS
+========================= */
+async function loadModels() {
+    const loader = new GLTFLoader();
+
+    const load = (path) =>
+        new Promise((resolve) => {
+            loader.load(path, gltf => resolve(gltf.scene));
+        });
+
+    models.road = await load('./road.gltf');
+    models.house = await load('./house.gltf');
+    models.office = await load('./skyscraper.gltf');
+    models.empty = await load('./grass.gltf');
+}
+
+/* =========================
+   WFC LOGIC
+========================= */
+function initWFC() {
+    grid = [];
+    for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+        grid.push({
+            index: i,
+            collapsed: false,
+            options: [...TYPES]
+        });
+    }
+}
+
+async function solveWFC() {
+    while (true) {
+        let uncollapsed = grid.filter(c => !c.collapsed);
+        if (uncollapsed.length === 0) break;
+
+        uncollapsed.sort((a, b) => a.options.length - b.options.length);
+
+        let minEntropy = uncollapsed[0].options.length;
+        let choices = uncollapsed.filter(c => c.options.length === minEntropy);
+        let cell = choices[Math.floor(Math.random() * choices.length)];
+
+        if (cell.options.length === 0) {
+            document.getElementById("status").innerText = "Contradiction! Restarting...";
+            startGeneration();
+            return;
+        }
+
+        const pick = cell.options[Math.floor(Math.random() * cell.options.length)];
+        cell.options = [pick];
+        cell.collapsed = true;
+
+        propagate(cell.index);
+    }
+
+    renderCity();
+}
+
+function propagate(index) {
+    let stack = [index];
+
+    while (stack.length > 0) {
+        let currIdx = stack.pop();
+        let neighbors = getNeighborIndices(currIdx);
+
+        neighbors.forEach(nIdx => {
+            let neighbor = grid[nIdx];
+
+            if (!neighbor.collapsed) {
+                let possible = [];
+
+                grid[currIdx].options.forEach(opt => {
+                    possible = [...new Set([...possible, ...RULES[opt]])];
+                });
+
+                let next = neighbor.options.filter(o => possible.includes(o));
+
+                if (next.length < neighbor.options.length) {
+                    neighbor.options = next;
+                    stack.push(nIdx);
+                }
+            }
+        });
+    }
+}
+
+function getNeighborIndices(i) {
+    let n = [];
+    let x = i % GRID_SIZE;
+    let y = Math.floor(i / GRID_SIZE);
+
+    if (y > 0) n.push(i - GRID_SIZE);
+    if (y < GRID_SIZE - 1) n.push(i + GRID_SIZE);
+    if (x > 0) n.push(i - 1);
+    if (x < GRID_SIZE - 1) n.push(i + 1);
+
+    return n;
+}
+
+/* =========================
+   RENDER CITY
+========================= */
+function clearScene() {
+    while (scene.children.length > 0) {
+        scene.remove(scene.children[0]);
+    }
+}
+
+function renderCity() {
+    clearScene();
+
+    // re-add lights
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const light = new THREE.DirectionalLight(0xffffff, 1);
+    light.position.set(20, 50, 10);
+    scene.add(light);
+
+    grid.forEach(cell => {
+        const type = cell.options[0];
+
+        let model = models[type].clone();
+
+        let x = (cell.index % GRID_SIZE) * TILE_SIZE;
+        let z = Math.floor(cell.index / GRID_SIZE) * TILE_SIZE;
+
+        model.position.set(x, 0, z);
+
+        scene.add(model);
+    });
+
+    document.getElementById("status").innerText = "City Generated!";
+}
+
+/* =========================
+   START
+========================= */
+window.startGeneration = async () => {
+    document.getElementById("status").innerText = "Loading models...";
+    
+    if (!scene) initThree();
+    if (Object.keys(models).length === 0) await loadModels();
+
+    document.getElementById("status").innerText = "Generating city...";
+    
+    initWFC();
+    solveWFC();
+};
+</script>
+
+</body>
+</html>
