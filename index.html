@@ -1,29 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D WFC City Architect</title>
+
+<style>
+body {
+    margin: 0;
+    background: #101010;
+    color: white;
+    font-family: sans-serif;
+    overflow: hidden;
+}
+
+#ui {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    z-index: 10;
+}
+
+button {
+    padding: 12px 24px;
+    font-size: 16px;
+    cursor: pointer;
+    background: #52b788;
+    border: none;
+    color: white;
+    font-weight: bold;
+    border-radius: 4px;
+}
+
+#status {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #aaa;
+}
+
+canvas {
+    display: block;
+}
+</style>
+</head>
+
+<body>
+
+<div id="ui">
+    <h1>City WFC 3D</h1>
+    <button onclick="startGeneration()">YAS! GENERATE CITY</button>
+    <div id="status">Ready to collapse...</div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+
 <script type="module">
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 const GRID_SIZE = 10;
 const TILE_SIZE = 4;
 
-const TYPES = ['road', 'house', 'office', 'empty'];
+const TYPES = ["road", "house", "office", "factory", "empty"];
 
 const RULES = {
-    road: ['road', 'house', 'office', 'empty'],
-    house: ['road'],
-    office: ['road'],
-    empty: ['road', 'empty']
+    road: ["road", "house", "office", "factory", "empty"],
+    house: ["road"],
+    office: ["road"],
+    factory: ["road"],
+    empty: ["road", "empty"]
 };
 
 let grid = [];
 let scene, camera, renderer, controls;
 let models = {};
 
-/* =========================
-   WFC SETUP
-========================= */
 function initWFC() {
     grid = [];
+
     for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
         grid.push({
             index: i,
@@ -33,9 +94,6 @@ function initWFC() {
     }
 }
 
-/* =========================
-   SOLVER
-========================= */
 async function solveWFC() {
     while (true) {
         let uncollapsed = grid.filter(c => !c.collapsed);
@@ -48,24 +106,21 @@ async function solveWFC() {
         let cell = choices[Math.floor(Math.random() * choices.length)];
 
         if (cell.options.length === 0) {
-            console.error("Contradiction — restarting");
             startGeneration();
             return;
         }
 
         const pick = cell.options[Math.floor(Math.random() * cell.options.length)];
+
         cell.options = [pick];
         cell.collapsed = true;
 
         propagate(cell.index);
     }
 
-    renderCity(); // hooks into Part 2
+    renderCity();
 }
 
-/* =========================
-   PROPAGATION
-========================= */
 function propagate(index) {
     let stack = [index];
 
@@ -94,9 +149,6 @@ function propagate(index) {
     }
 }
 
-/* =========================
-   NEIGHBORS
-========================= */
 function getNeighborIndices(i) {
     let n = [];
     let x = i % GRID_SIZE;
@@ -110,17 +162,19 @@ function getNeighborIndices(i) {
     return n;
 }
 
-/* =========================
-   🔥 CONNECTION SYSTEM (NEW)
-========================= */
-function getConnections(index) {
+function getRoadConnections(index) {
     let x = index % GRID_SIZE;
     let y = Math.floor(index / GRID_SIZE);
 
-    let c = { up:false, down:false, left:false, right:false };
+    let c = {
+        up: false,
+        down: false,
+        left: false,
+        right: false
+    };
 
     function isRoad(i) {
-        return grid[i] && grid[i].options[0] === 'road';
+        return grid[i] && grid[i].options[0] === "road";
     }
 
     if (y > 0 && isRoad(index - GRID_SIZE)) c.up = true;
@@ -131,193 +185,21 @@ function getConnections(index) {
     return c;
 }
 
-/* =========================
-   START BUTTON
-========================= */
-window.startGeneration = () => {
-    document.getElementById("status").innerText = "Generating...";
-    initWFC();
-    solveWFC();
-};
+function getNearbyRoadDirection(index) {
+    let x = index % GRID_SIZE;
+    let y = Math.floor(index / GRID_SIZE);
 
-/* =========================
-   PLACEHOLDER (Part 2 replaces this)
-========================= */
-function renderCity() {
-    console.log("Waiting for Part 2...");
-}
-</script>
-/* =========================
-   THREE.JS SETUP
-========================= */
-function initThree() {
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x101010);
-
-    camera = new THREE.PerspectiveCamera(
-        60,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        1000
-    );
-
-    camera.position.set(25, 35, 25);
-
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-
-    addLights();
-
-    window.addEventListener("resize", () => {
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
-    animate();
-}
-
-function addLights() {
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-
-    const sun = new THREE.DirectionalLight(0xffffff, 1);
-    sun.position.set(30, 60, 20);
-    scene.add(sun);
-}
-
-function animate() {
-    requestAnimationFrame(animate);
-    controls.update();
-    renderer.render(scene, camera);
-}
-
-/* =========================
-   LOAD YOUR GLTF MODELS
-========================= */
-async function loadModels() {
-    const loader = new GLTFLoader();
-
-    function load(path) {
-        return new Promise((resolve, reject) => {
-            loader.load(
-                path,
-                gltf => resolve(gltf.scene),
-                undefined,
-                err => reject(err)
-            );
-        });
+    function isRoad(i) {
+        return grid[i] && grid[i].options[0] === "road";
     }
 
-    models.road = await load("./road.gltf");
-    models.house = await load("./house.gltf");
-    models.office = await load("./skyscraper.gltf");
-    models.empty = await load("./grass.gltf");
-}
+    if (y > 0 && isRoad(index - GRID_SIZE)) return "up";
+    if (y < GRID_SIZE - 1 && isRoad(index + GRID_SIZE)) return "down";
+    if (x > 0 && isRoad(index - 1)) return "left";
+    if (x < GRID_SIZE - 1 && isRoad(index + 1)) return "right";
 
-/* =========================
-   CLEAR OLD CITY
-========================= */
-function clearCity() {
-    const keep = [];
-
-    scene.children.forEach(obj => {
-        if (obj.isLight) keep.push(obj);
-    });
-
-    scene.clear();
-
-    keep.forEach(obj => scene.add(obj));
-}
-
-/* =========================
-   ROAD ROTATION
-========================= */
-function rotateRoad(model, index) {
-    const c = getConnections(index);
-
-    const up = c.up;
-    const down = c.down;
-    const left = c.left;
-    const right = c.right;
-
-    if (up && down && !left && !right) {
-        model.rotation.y = 0;
-    }
-    else if (left && right && !up && !down) {
-        model.rotation.y = Math.PI / 2;
-    }
-    else if (up && right && !down && !left) {
-        model.rotation.y = 0;
-    }
-    else if (right && down && !left && !up) {
-        model.rotation.y = Math.PI / 2;
-    }
-    else if (down && left && !up && !right) {
-        model.rotation.y = Math.PI;
-    }
-    else if (left && up && !right && !down) {
-        model.rotation.y = -Math.PI / 2;
-    }
-    else {
-        model.rotation.y = 0;
-    }
-}
-
-/* =========================
-   RENDER FINAL CITY
-========================= */
-function renderCity() {
-    if (!scene) return;
-
-    clearCity();
-
-    grid.forEach(cell => {
-        const type = cell.options[0];
-
-        if (!models[type]) return;
-
-        const model = models[type].clone(true);
-
-        const x = (cell.index % GRID_SIZE) * TILE_SIZE;
-        const z = Math.floor(cell.index / GRID_SIZE) * TILE_SIZE;
-
-        model.position.set(x, 0, z);
-
-        if (type === "road") {
-            rotateRoad(model, cell.index);
-        }
-
-        model.scale.set(1, 1, 1);
-
-        scene.add(model);
-    });
-
-    document.getElementById("status").innerText = "Connected city generated!";
-}
-
-/* =========================
-   UPDATED START BUTTON
-========================= */
-window.startGeneration = async () => {
-    document.getElementById("status").innerText = "Loading...";
-
-    if (!scene) {
-        initThree();
-    }
-
-    if (Object.keys(models).length === 0) {
-        await loadModels();
-    }
-
-    document.getElementById("status").innerText = "Generating connected city...";
-
-    initWFC();
-    solveWFC();
-};function initThree() {
+    return null;
+}function initThree() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x101010);
 
@@ -379,6 +261,7 @@ async function loadModels() {
     models.road = await load("./road.gltf");
     models.house = await load("./house.gltf");
     models.office = await load("./skyscraper.gltf");
+    models.factory = await load("./factory.gltf");
     models.empty = await load("./grass.gltf");
 }
 
@@ -527,7 +410,7 @@ function renderCity() {
             }
         }
 
-        if (type === "house" || type === "office") {
+        if (type === "house" || type === "office" || type === "factory") {
             const dir = getNearbyRoadDirection(cell.index);
 
             if (dir === "up") {
@@ -548,7 +431,7 @@ function renderCity() {
         }
     });
 
-    document.getElementById("status").innerText = "Visually connected city generated!";
+    document.getElementById("status").innerText = "Factories + connected city generated!";
 }
 
 window.startGeneration = async () => {
@@ -562,7 +445,7 @@ window.startGeneration = async () => {
         await loadModels();
     }
 
-    document.getElementById("status").innerText = "Generating visual connections...";
+    document.getElementById("status").innerText = "Generating factories and roads...";
 
     initWFC();
     solveWFC();
